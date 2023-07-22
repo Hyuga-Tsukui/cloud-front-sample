@@ -32,6 +32,14 @@ export class CloudFrontSampleStack extends cdk.Stack {
       resources: [bucket.bucketArn + "/*"],
     });
 
+    // response headerを変更するcfnの作成
+    const cfnFunction = new cdk.aws_cloudfront.Function(this, "Function", {
+      functionName: "OverrideResponseHeader",
+      code: cdk.aws_cloudfront.FunctionCode.fromFile({
+        filePath: "./functions/overrideResponseHeader.js",
+      }),
+    });
+
     // CloudFrontの作成
     const distribution = new cdk.aws_cloudfront.CloudFrontWebDistribution(
       this,
@@ -54,6 +62,13 @@ export class CloudFrontSampleStack extends cdk.Stack {
                 // キャッシュ設定
                 defaultTtl: cdk.Duration.days(1),
                 maxTtl: cdk.Duration.days(365),
+                functionAssociations: [
+                  {
+                    function: cfnFunction,
+                    eventType:
+                      cdk.aws_cloudfront.FunctionEventType.VIEWER_RESPONSE,
+                  },
+                ],
               },
             ],
           },
