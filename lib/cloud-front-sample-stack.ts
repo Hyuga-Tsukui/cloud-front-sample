@@ -14,12 +14,23 @@ export class CloudFrontSampleStack extends cdk.Stack {
       publicReadAccess: false,
     });
 
-    // OAIの作成
-    // OAIはCloudFrontからのみs3にアクセスできるようにするための設定
-    const oai = new cdk.aws_cloudfront.OriginAccessIdentity(this, "OAI", {
-      comment: "OAI for CloudFront",
+    const oac = new cdk.aws_cloudfront.CfnOriginAccessControl(this, "OAC", {
+      originAccessControlConfig: {
+        name: "OAC",
+        originAccessControlOriginType: "s3",
+        signingBehavior: "always",
+        signingProtocol: "sigv4",
+      },
     });
-    bucket.grantRead(oai);
+
+    const bucketPolicy = new cdk.aws_iam.PolicyStatement({
+      actions: ["s3:GetObject"],
+      effect: cdk.aws_iam.Effect.ALLOW,
+      principals: [
+        new cdk.aws_iam.ServicePrincipal("cloudfront.amazonaws.com"),
+      ],
+      resources: [bucket.bucketArn + "/*"],
+    });
 
     // CloudFrontの作成
     const distribution = new cdk.aws_cloudfront.CloudFrontWebDistribution(
@@ -30,7 +41,6 @@ export class CloudFrontSampleStack extends cdk.Stack {
           {
             s3OriginSource: {
               s3BucketSource: bucket,
-              originAccessIdentity: oai,
             },
             behaviors: [
               {
@@ -74,6 +84,29 @@ export class CloudFrontSampleStack extends cdk.Stack {
         // },
         priceClass: cdk.aws_cloudfront.PriceClass.PRICE_CLASS_200,
       }
+    );
+
+    bucketPolicy.addCondition("StringEquals", {
+      "AWS:SourceArn": `arn:aws:cloudfront::${
+        cdk.Stack.of(this).account
+      }:distribution/${distribution.distributionId}`,
+    });
+
+    bucket.addToResourcePolicy(bucketPolicy);
+
+    // OAIがレガシーなので、OACを使った設定 REF: https://zenn.dev/thyt_lab/articles/d6423c883882b7
+    const cfnDistribution = distribution.node
+      .defaultChild as cdk.aws_cloudfront.CfnDistribution;
+    cfnDistribution.addPropertyOverride(
+      "DistributionConfig.Origins.0.OriginAccessControlId",
+      oac.getAtt("Id")
+    );
+    cfnDistribution.addOverride(
+      "Properties.DistributionConfig.Origins.0.S3OriginConfig.OriginAccessIdentity",
+      ""
+    );
+    cfnDistribution.addPropertyDeletionOverride(
+      "DistributionConfig.Origins.0.CustomOriginConfig"
     );
 
     // S3にリソースを配置
